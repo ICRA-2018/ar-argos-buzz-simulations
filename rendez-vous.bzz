@@ -1,0 +1,55 @@
+# We need this for 2D vectors
+# Make sure you pass the correct include path to "bzzc -I <path1:path2> ..."
+include "include/vec2.bzz"
+ 
+# Lennard-Jones parameters
+TARGET     = 90.0
+EPSILON    = 10000000000000000000.0
+ 
+# Lennard-Jones interaction magnitude
+function lj_magnitude(dist, target, epsilon) {
+  return -(epsilon / dist) * ((target / dist)^4 - (target / dist)^2)
+}
+ 
+# Neighbor data to LJ interaction vector
+function lj_vector(rid, data) {
+  return math.vec2.newp(lj_magnitude(data.distance, TARGET, EPSILON), data.azimuth)
+}
+ 
+# Accumulator of neighbor LJ interactions
+function lj_sum(rid, data, accum) {
+  return math.vec2.add(data, accum)
+}
+ 
+# Calculates and actuates the flocking interaction
+function hexagon() {
+  # Calculate accumulator
+  var accum = neighbors.map(lj_vector).reduce(lj_sum, math.vec2.new(0.0, 0.0))
+  if(neighbors.count() > 0)
+    math.vec2.scale(accum, 1.0 / neighbors.count())
+  # Move according to vector
+  goto(accum.x, accum.y)
+}
+ 
+# Executed at init time
+function init() {
+    
+    iteration = 0
+    
+}
+ 
+# Executed every time step
+function step() {
+  
+  iteration = iteration + 1
+  
+  if ((id == 0) and (iteration > 50) and (iteration < 1000)) {
+      goto(0.0, 0.0)
+  } else {
+      hexagon()
+  }
+}
+ 
+# Execute at exit
+function destroy() {
+}
