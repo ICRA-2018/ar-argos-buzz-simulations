@@ -1,0 +1,416 @@
+include "include/vec2.bzz"
+include "include/others.bzz"
+
+# Simulation parameters
+SPEED_FACTOR = 15
+
+# Lennard-Jones parameters
+TARGET     = 240.0 # The equilibrium distance, in cm
+#TARGET     = 90.0 # The equilibrium distance, in cm
+CLOSE_TARGET  = 120.0 # The equilibrium distance, in cm
+EPSILON    = 1000000000.0
+
+# Write a table as if it was a matrix
+function write_knowledge(k, row, col, val) {
+    var key = string.concat(string.tostring(row),"-",string.tostring(col))
+    k[key] = val
+}
+
+# Read a table as if it was a matrix
+function read_knowledge(k, row, col) {
+    var key = string.concat(string.tostring(row),"-",string.tostring(col))
+    if (k[key] == nil) {
+        if (mute==0) {
+            log("Warning: reading 'nil' value from the knowledge table, returning -1")
+        }
+        return -1
+    } else {
+        return k[key]
+    }
+}
+
+# Lennard-Jones interaction magnitude
+function lj_magnitude(dist, target, epsilon) {
+  return -(epsilon / dist) * ((target / dist)^4 - (target / dist)^2)
+}
+# Neighbor data to LJ interaction vector
+function lj_vector(rid, data) {
+  return math.vec2.newp(lj_magnitude(data.distance, TARGET, EPSILON), data.azimuth)
+}
+function close_lj_vector(rid, data) {
+  return math.vec2.newp(lj_magnitude(data.distance, CLOSE_TARGET, EPSILON), data.azimuth)
+}
+# Accumulator of neighbor LJ interactions
+function lj_sum(rid, data, accum) {
+  return math.vec2.add(data, accum)
+}
+
+# Calculates and actuates the flocking interaction
+function hexagon(speed_mul) {
+  # Calculate accumulator
+  var accum = neighbors.map(lj_vector).reduce(lj_sum, math.vec2.new(0.0, 0.0))
+  if(neighbors.count() > 0)
+    math.vec2.scale(accum, 1.0 / neighbors.count())
+  # Move according to vector
+  #goto(speed_mul * accum.x, speed_mul * accum.y)
+  goto(accum.x, accum.y)
+}
+
+function close_hexagon(speed_mul) {
+  # Calculate accumulator
+  var accum = neighbors.map(close_lj_vector).reduce(lj_sum, math.vec2.new(0.0, 0.0))
+  if(neighbors.count() > 0)
+    math.vec2.scale(accum, 1.0 / neighbors.count())
+  # Move according to vector
+  #goto(speed_mul * accum.x, speed_mul * accum.y)
+  goto(accum.x, accum.y)
+}
+
+function align_with(s_C, d_C, s_b_C, a_C, v_C) {
+    
+    # Initialize return value
+    aligned_bool = 0
+    
+    # If the center is in sight, print info
+    if (v_C == 1) {
+    
+        arm_offset = degrees_interval(s_b_C - a_C)
+        if (arm_offset<1.8 and arm_offset>(-1.8)) {
+        
+            # Underlying Lennard-Jones potential behavior
+            if(mute==0) { log("This is ", id,": ALIGNED-> LJ") }
+            
+            hexagon(SPEED_FACTOR)
+            
+            # Update return value
+            aligned_bool = 1
+        
+        } else {
+        
+            local_rotation = degrees_interval( s_b_C + (180.0 - s_C) )
+            local_arm = degrees_interval(a_C - local_rotation)
+            
+            #if (d_C > 250.0) {
+            if ((d_C > (1.2*TARGET)) or (d_C > 250.0)) {
+                
+                if(mute==0) { log("This is ", id,", APPROACHING") }
+                x_mov = math.cos(dtor(s_C))
+                y_mov = math.sin(dtor(s_C))
+                #goto(x_mov,y_mov)
+                
+            } else if (d_C < 25.0) {
+                
+                if(mute==0) { log("This is ", id,", ESCAPING") }
+                x_mov = -math.cos(dtor(s_C))
+                y_mov = -math.sin(dtor(s_C))
+                #goto(x_mov,y_mov)
+                
+            } else {
+                
+                if(mute==0) { log("This is ", id, ", TURNING") }
+                
+                # Fun stuff but be careful with this, it affects how a robots turns around a central node
+                #spiraling = 2.0+(id/10.0) # Use random number generation, eventually
+                spiraling = 1.0 * randpercentage(id)
+                
+                if (arm_offset > 0) {
+                    
+                    # Clockwise
+                    x_mov = -math.sin(dtor(s_C))
+                    y_mov = math.cos(dtor(s_C)) * spiraling
+                    if(mute==0) { log("This is ", id, ", CLOCKWISE") }
+                    
+                } else {
+                    # Counterclockwise
+                    x_mov = math.sin(dtor(s_C))
+                    y_mov = -math.cos(dtor(s_C)) * spiraling
+                    if(mute==0) { log("This is ", id, ", COUNTERCLOCKWISE") }
+                }
+                  
+            }
+            
+            goto(SPEED_FACTOR * x_mov,SPEED_FACTOR * y_mov)
+        
+        }
+        
+    } else {
+        
+        if (mute==0) {log("This is ", id, ": no visible center/aligned point-> LJ") }
+        
+        hexagon(SPEED_FACTOR)
+        
+        # Would it be better to stop or re-group in this case?
+        
+    }
+    
+    return aligned_bool
+}
+
+function inform_your_neighborhood(arm_id, align_bool, local_dir) {
+    
+    # Reset to 0 the visibility of all neighbors
+    foreach(knowledge, function(key, value) {
+          column = string.sub(key, string.length(key)-1,string.length(key))
+          if (column=='6') { 
+              knowledge[key] = 0 
+          }     
+    })
+    
+    neighbors.foreach( function(rid, data) {
+               
+        # For each neighbor, send a message with its azimuth, as seen by the broadcasting robot
+        message_id = string.tostring(rid)
+        neighbors.broadcast(message_id, rtod(data.azimuth))
+        
+        # Record the neighbor azimuth in my own knowledge table
+        write_knowledge(knowledge, rid, 0, rtod(data.azimuth))
+        
+        # Record the neighbor distance in my own knowledge table
+        write_knowledge(knowledge, rid, 2, data.distance)
+        
+        # Set neighbor as visible
+        write_knowledge(knowledge, rid, 6, 1)
+      
+    })
+    
+    # Send a message with the arm id of the broadcasting robot
+    neighbors.broadcast("arm_id", arm_id)
+    
+    # Send a message with the alignement status of the broadcasting robot
+    neighbors.broadcast("alignment", align_bool)
+    
+    # Send a message with the desired direction, as seen by the broadcasting robot
+    neighbors.broadcast("direction", local_dir)
+    
+    # Broadcast distance to the neighbors
+    neighbors.broadcast("distance", distance_from_the_center)
+    
+}
+
+function listen_to_your_neighborhood() {
+    
+    # For all "senders" in my neighborhood, record my azimuth, as seen by them
+    message_id = string.tostring(id)
+    neighbors.listen(message_id, function(vid, value, rid) {
+        write_knowledge(knowledge, rid, 1, value)
+        #log("Robot ", id, " just received message with id ", message_id, " from ", rid, " with value ", value, " and vid=", vid)
+    })
+    
+    # For all "senders" in my neighborhood, record their arm id
+    neighbors.listen("arm_id", function(vid, value, rid) {
+        write_knowledge(knowledge, rid, 3, value)
+    })
+    
+    # For all "senders" in my neighborhood, record their alignment status
+    neighbors.listen("alignment", function(vid, value, rid) {
+        write_knowledge(knowledge, rid, 4, value)
+    })
+    
+    # For all "senders" in my neighborhood, record their suggested direction, as seen by them
+    neighbors.listen("direction", function(vid, value, rid) {
+        write_knowledge(knowledge, rid, 5, value)
+    })
+    
+    # Initialize and listen to the neighbors' distances
+    if(id == 0) {
+        # Center robot
+        distance_from_the_center = 0.
+    }
+    else {
+        # Other robots
+        distance_from_the_center = 9999.
+        # Listen to other robots' distances
+        neighbors.listen("distance",
+          function(value_id, value, robot_id) {
+              
+            # For each neighbor, save its own esitmated distance from the center
+            write_knowledge(knowledge, robot_id, 7, value)
+            
+            # Reset the value of the distance from the center every 10 iterations
+            if (iteration%100 == 0) {
+                distance_from_the_center = 9999.
+            }
+            
+            distance_from_the_center = math.min(
+              distance_from_the_center,
+              neighbors.get(robot_id).distance + value)
+              
+          })
+    }
+    
+}
+
+
+function center() {
+    
+  # Do not move
+  goto(0.0,0.0)
+  
+  where_to_go = -45.0
+  if (iteration>500) {
+      where_to_go = where_to_go + ((iteration-500)/20)
+  }
+  
+  # Tell the neighbors of the center where to go
+  inform_your_neighborhood(0, 1, where_to_go)   
+    
+  
+}
+
+function therest() {
+    
+    ###################
+    # RECURSIVE CONTROL
+    ###################
+    
+    # Variables reset (before recomputing)
+    aligned_bool = 0
+    local_dir = -1
+    
+    # If the robot can see center
+    if (neighbors.get(0) != nil) {
+        
+        aligned_neighbor_id = 0
+        
+        # Align with it (retrieve parameters)
+        local_azimuth_of_the_node_to_align_with = read_knowledge(knowledge, 0, 0)
+        received_azimuth_of_the_node_to_align_with = read_knowledge(knowledge, 0, 1)
+        distance_of_the_node_to_align_with = read_knowledge(knowledge, 0, 2)
+        non_local_azimuth_of_the_arm = read_knowledge(knowledge, 0, 5)
+        visibility_of_the_node_to_align_with = read_knowledge(knowledge, 0, 6)
+        
+        # Actual Movement
+        aligned_bool = align_with(local_azimuth_of_the_node_to_align_with, distance_of_the_node_to_align_with, received_azimuth_of_the_node_to_align_with, non_local_azimuth_of_the_arm, visibility_of_the_node_to_align_with)   
+        
+        # Update info to broadcast ONLY IF ALIGNED
+        #if (aligned_bool) {
+            local_rotation = degrees_interval( received_azimuth_of_the_node_to_align_with + (180.0 - local_azimuth_of_the_node_to_align_with) )
+            local_dir = degrees_interval(non_local_azimuth_of_the_arm - local_rotation)         
+        #}
+        
+    } else {
+        
+        # Aligned neighbor variables
+        aligned_neighbor_exist = 0
+        aligned_neighbor_id = -1
+        #aligned_neighbor_dist_from_center = 0
+        
+        # Look for nodes to align to, pick the aligned node farthest from the center
+        # Extend using the gradient in further development (?)
+        aligned_neighbor_dist_from_center = 0
+        neighbors.foreach( function(rid, data) {
+            
+            
+           #HOW TO SELECT THE ROBOT TO ALIGN TO
+           #if ( (read_knowledge(knowledge, rid, 4) == 1) and (read_knowledge(knowledge, rid, 7) < distance_from_the_center)  ) { #aligned and closer
+           #if ( (read_knowledge(knowledge, rid, 4) == 1) ) { #aligned 
+           if ( (read_knowledge(knowledge, rid, 7) < distance_from_the_center) and (read_knowledge(knowledge, rid, 7) > aligned_neighbor_dist_from_center) ) { #closer
+           
+                
+                aligned_neighbor_dist_from_center = read_knowledge(knowledge, rid, 7)
+                #
+                aligned_neighbor_exist = 1
+                aligned_neighbor_id = rid
+                            
+            }
+        })
+        
+        # If such a node exists
+        if (aligned_neighbor_exist==1) {
+                            
+            # Align with it (retrieve parameters)
+            local_azimuth_of_the_node_to_align_with = read_knowledge(knowledge, aligned_neighbor_id, 0)
+            received_azimuth_of_the_node_to_align_with = read_knowledge(knowledge, aligned_neighbor_id, 1)
+            distance_of_the_node_to_align_with = read_knowledge(knowledge, aligned_neighbor_id, 2)
+            non_local_azimuth_of_the_arm = read_knowledge(knowledge, aligned_neighbor_id, 5)
+            visibility_of_the_node_to_align_with = read_knowledge(knowledge, aligned_neighbor_id, 6)
+        
+            # Actual Movement
+            aligned_bool = align_with(local_azimuth_of_the_node_to_align_with, distance_of_the_node_to_align_with, received_azimuth_of_the_node_to_align_with, non_local_azimuth_of_the_arm, visibility_of_the_node_to_align_with)   
+        
+            # Update info to broadcast ONLY IF ALIGNED
+            #if (aligned_bool) {
+                local_rotation = degrees_interval( received_azimuth_of_the_node_to_align_with + (180.0 - local_azimuth_of_the_node_to_align_with) )
+                local_dir = degrees_interval(non_local_azimuth_of_the_arm - local_rotation)         
+            #}
+         
+        # If no visible node is aligned    
+        } else {
+
+                # LJ potential
+                
+                close_hexagon(SPEED_FACTOR)
+                # Or re-group (?)
+            
+        }
+        
+    }  
+        
+    # Broadcast information to the neighbors
+    inform_your_neighborhood(0, aligned_bool, local_dir)
+    
+    # Print with respect to which robot the aligment is performed to
+    #snap = iteration-25
+    #if (snap%50 == 0) {
+    #    log(id, " (", distance_from_the_center, ",", aligned_bool,") al. ", aligned_neighbor_id )
+    #}
+        
+        
+}
+
+# Executed at init time
+function init() {
+  
+  # Create two swarms, one for the center only 
+  # and one for the robots in the "tentacle"
+  s0 = swarm.create(0)
+  s1 = swarm.create(1) 
+  s0.select( id == 0 )
+  s1.select( id != 0 )
+  
+  # Local knowledge table
+  knowledge = {}
+  
+  # Update local knowledge with information from the neighbors
+  listen_to_your_neighborhood()
+
+  # Variables initialization
+  mute = 1
+  iteration = 0
+  
+}
+
+# Executed every time step
+function step() {
+
+  s0.exec(center)
+  s1.exec(therest)
+   
+  # Print knowledge to debug
+  if (mute==0) {
+      log()
+      log(id)
+      foreach(knowledge, function(key, value) {
+            log(key, " -> ", value)
+      })  
+  }
+  
+  # Printout of the distance from the center every 5'' (starting from 2.5'', therfore offset from the 10'' refresh)
+  #snap = iteration-25
+  #if (snap%50 == 0) {
+  #    log(id, " ", distance_from_the_center)
+  #}
+  
+  # Count the number of steps
+  iteration = iteration + 1  
+  
+}
+
+
+
+# Executed once when the robot (or the simulator) is reset.
+function reset() {
+}
+# Execute at exit
+function destroy() {
+}
