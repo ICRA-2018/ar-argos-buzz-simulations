@@ -1,0 +1,41 @@
+name: ar-argos-buzz-simulations
+
+base:
+  ubuntu: 16.04
+  opengl: devel
+
+source:
+  - name: argos3
+    repo: https://github.com/ilpincy/argos3.git
+    depends:
+      - cmake 
+      - libfreeimage-dev
+      - libfreeimageplus-dev
+      - qt5-default
+      - freeglut3-dev
+      - libxi-dev
+      - libxmu-dev
+      - liblua5.2-dev
+      - lua5.2 
+      - doxygen 
+      - graphviz
+      - graphviz-dev
+      - asciidoc
+    build: cmake
+    cmake_folder: ../src
+    make_command: make -j2 && make doc -j2 && make install
+
+  - name: buzz
+    repo: https://github.com/MISTLab/Buzz.git
+    build: cmake
+    cmake_folder: ../src
+    make_command: make install
+
+  - name: argos-examples
+    repo: https://github.com/ilpincy/argos3-examples.git
+    build: cmake
+    make_command: make
+    keep_source: True
+
+custom:
+  - ldconfig
