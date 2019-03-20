@@ -7,6 +7,7 @@ base:
 source:
   - name: argos3
     repo: https://github.com/ilpincy/argos3.git
+    checkout: d406b52894949512b29fb2ecc59276fd05895571
     depends:
       - cmake 
       - libfreeimage-dev
@@ -30,12 +31,6 @@ source:
     build: cmake
     cmake_folder: ../src
     make_command: make install
-
-  - name: argos-examples
-    repo: https://github.com/ilpincy/argos3-examples.git
-    build: cmake
-    make_command: make
-    keep_source: True
 
 custom:
   - ldconfig

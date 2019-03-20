@@ -8,12 +8,14 @@ ENV LC_ALL C.UTF-8
 
 RUN apt-get -o Acquire::ForceIPv4=true update && apt-get -yq dist-upgrade \
  && apt-get -o Acquire::ForceIPv4=true install -yq --no-install-recommends \
-	locales python-pip cmake \
-	python3-pip python3-setuptools git build-essential \
+	locales cmake git build-essential \
+    python-pip \
+	python3-pip python3-setuptools \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install jupyterlab bash_kernel \
+RUN pip3 install --upgrade pip setuptools \
+ && python3 -m pip install jupyterlab==0.35.4 bash_kernel==0.7.1 tornado==5.1.1 \
  && python3 -m bash_kernel.install
 
 ENV SHELL=/bin/bash \
@@ -55,6 +57,7 @@ RUN apt-get -o Acquire::ForceIPv4=true update \
 
 RUN git clone https://github.com/ilpincy/argos3.git /argos3 \
  && cd /argos3 \
+ && git checkout d406b52894949512b29fb2ecc59276fd05895571 \
  && mkdir build \
  && cd build \
  && cmake  ../src \
@@ -68,15 +71,6 @@ RUN git clone https://github.com/MISTLab/Buzz.git /buzz \
  && cmake  ../src \
  && make install \
  && rm -fr /buzz
-
-RUN git clone https://github.com/ilpincy/argos3-examples.git /argos-examples \
- && cd /argos-examples \
- && mkdir build \
- && cd build \
- && cmake  ../ \
- && make \
- && cp -R /argos-examples ${HOME}/. \
- && rm -fr /argos-examples
 
 ##################################### COPY #####################################
 
